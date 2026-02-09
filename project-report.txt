@@ -1,0 +1,600 @@
+﻿=== PROJECT STRUCTURE ===
+.env.local
+eslint.config.js
+index.html
+package-lock.json
+package.json
+project-report.txt
+README.md
+vite.config.js
+public\vite.svg
+src\App.css
+src\App.jsx
+src\index.css
+src\main.jsx
+src\supabase.js
+src\api\tactical-engine.js
+
+=== PACKAGE.JSON ===
+{
+  "name": "osm-prod-app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@supabase/auth-helpers-react": "^0.15.0",
+    "@supabase/supabase-js": "^2.95.3",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "vite-plugin-pwa": "^1.2.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/react": "^19.2.5",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.5.0",
+    "vite": "^7.2.4"
+  }
+}
+
+
+=== SRC FILES ===
+
+--- src/main.jsx ---
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './index.css'
+import App from './App.jsx'
+
+createRoot(document.getElementById('root')).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+)
+
+
+--- src/App.jsx ---
+import { useState, useEffect } from 'react'
+import { supabase } from './supabase'
+import './App.css'
+
+function App() {
+  const [user, setUser] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [strategy, setStrategy] = useState(null)
+  const [error, setError] = useState('')
+  const [inputs, setInputs] = useState({
+    formation: '',
+    strength: '',
+    oppStyle: 'passing',
+    oppMarking: 'zonal',
+    oppTrap: 'No',
+    oppPressing: 50,
+    venue: 'home',
+    pitchLevel: 0,
+    campIntensity: 0,
+    hasSecretTraining: false
+  })
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null)
+    })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null)
+    })
+    return () => subscription.unsubscribe()
+  }, [])
+
+  const handleLogin = async () => {
+    await supabase.auth.signInWithOAuth({ provider: 'google' })
+  }
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    setStrategy(null)
+  }
+
+  const handleChange = (e) => {
+    const { name, value, type, checked } = e.target
+    setInputs(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }))
+  }
+
+  const calculateStrategy = async () => {
+    if (!inputs.formation || !inputs.strength) {
+      setError('Please select opponent formation and strength')
+      return
+    }
+    setLoading(true)
+    setError('')
+    try {
+      const response = await fetch('/api/tactical-engine', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...inputs,
+          userId: user?.id,
+          oppPressing: parseInt(inputs.oppPressing),
+          pitchLevel: parseInt(inputs.pitchLevel),
+          campIntensity: parseInt(inputs.campIntensity)
+        })
+      })
+      const result = await response.json()
+      if (!result.success) throw new Error(result.error || 'Calculation failed')
+      setStrategy(result.strategy)
+      document.getElementById('results')?.scrollIntoView({ behavior: 'smooth' })
+    } catch (err) {
+      setError(err.message || 'Service unavailable. Try again later.')
+      console.error('Calculation error:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="container">
+      <header>
+        <h1>ðŸ† OSM Master Strategist</h1>
+        <p className="subtitle">
+          Engineered from 2,150+ matches â€¢ Based on adrian2255 & Rachid-Hilmi tactical frameworks
+        </p>
+        <div className="auth-section">
+          {user ? (
+            <div className="auth-info">
+              <span className="user-greeting">Hi, {user.email.split('@')[0]}!</span>
+              <span className="tier-badge">FREE TIER</span>
+              <span className="usage-counter">0/2 used</span>
+              <button onClick={handleLogout} className="logout-btn">Logout</button>
+            </div>
+          ) : (
+            <button onClick={handleLogin} className="login-btn">
+              ðŸ” Login with Google
+            </button>
+          )}
+        </div>
+      </header>
+
+      <div className="card">
+        <h2 className="section-title">ðŸ” Opponent Intelligence</h2>
+        <div className="input-grid">
+          <div className="input-group">
+            <label htmlFor="relStrength">Relative Strength</label>
+            <select id="relStrength" name="strength" value={inputs.strength} onChange={handleChange}>
+              <option value="">Select strength...</option>
+              <option value="much-weaker">Much Weaker (-15+ rating)</option>
+              <option value="weaker">Weaker (-5 to -14)</option>
+              <option value="equal">Equal (Â±4 rating)</option>
+              <option value="stronger">Stronger (+5 to +14)</option>
+              <option value="much-stronger">Much Stronger (+15+)</option>
+            </select>
+          </div>
+          <div className="input-group">
+            <label htmlFor="oppFormation">Opponent Formation</label>
+            <select id="oppFormation" name="formation" value={inputs.formation} onChange={handleChange}>
+              <option value="">Select formation...</option>
+              <option value="433A">4-3-3 A (CAM)</option>
+              <option value="433B">4-3-3 B (CDM)</option>
+              <option value="442A">4-4-2 A</option>
+              <option value="442B">4-4-2 B</option>
+              <option value="451">4-5-1</option>
+              <option value="343A">3-4-3 A</option>
+              <option value="532">5-3-2</option>
+            </select>
+          </div>
+        </div>
+        <button onClick={calculateStrategy} disabled={loading} className="btn-primary">
+          {loading ? 'ðŸ§  Analyzing 2,150+ matches...' : 'ðŸŽ¯ GENERATE COUNTER STRATEGY'}
+        </button>
+        {error && <div className="error-card"><strong>âŒ Error:</strong> {error}</div>}
+      </div>
+
+      {strategy && (
+        <div id="results" className="card results-section">
+          <div className="strategy-header">
+            <div className="formation-display">
+              <div className="formation-visual">{strategy.formationVisual || 'âš½âš½âš½\nâš½âš½âš½\nâš½âš½âš½âš½\n  ðŸ¥…'}</div>
+              <div className="formation-name">{strategy.formation}</div>
+            </div>
+            <div className="win-probability">
+              <div className="prob-label">Win Probability</div>
+              <div className="prob-value">{strategy.winProbability}%</div>
+            </div>
+          </div>
+          <div className="tag-group">
+            <span className="tag game-plan">{strategy.gamePlan}</span>
+            <span className="tag weakness">Exploits: {strategy.primaryWeakness}</span>
+            <span className="tag marking">{strategy.defensiveConfig?.marking || 'Zonal'} Marking</span>
+          </div>
+          <div className="strategy-details">
+            <h3 className="detail-title">ðŸ§  How It Works</h3>
+            <p className="detail-text">{strategy.counterMechanism}</p>
+            <h3 className="detail-title">âš ï¸ Risk Assessment</h3>
+            <p className={`detail-text risk-${strategy.riskAssessment?.toLowerCase().includes('high') ? 'high' : strategy.riskAssessment?.toLowerCase().includes('medium') ? 'medium' : 'low'}`}>
+              {strategy.riskAssessment || 'Low risk: Balanced approach'}
+            </p>
+            <div className="meta-info">
+              Based on {strategy.meta?.totalMatchesAnalyzed?.toLocaleString() || '2,150'} matches â€¢ 
+              Success: {strategy.meta?.successRate || '76%'} â€¢ Engine v{strategy.meta?.engineVersion || '6.1'}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default App
+
+--- src/supabase.js ---
+import { createClient } from '@supabase/supabase-js'
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+
+export const isAuthenticated = async () => {
+  const { data: { session } } = await supabase.auth.getSession()
+  return !!session
+}
+
+export const getCurrentUser = async () => {
+  const { data: { session } } = await supabase.auth.getSession()
+  return session?.user
+}
+
+--- src/App.css ---
+:root {
+  --primary: #002c62;
+  --accent: #00aeef;
+  --secondary: #ffb400;
+  --dark: #0c1120;
+  --glass: rgba(0,0,0,0.65);
+  --text: #ffffff;
+  --dim: #a0b4c8;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box }
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: linear-gradient(135deg, rgba(0,0,0,0.85), rgba(0,0,0,0.9)),
+    radial-gradient(circle at 20% 50%, rgba(0,174,239,0.1) 0%, transparent 25%),
+    radial-gradient(circle at 80% 80%, rgba(255,180,0,0.08) 0%, transparent 30%);
+  color: var(--text);
+  line-height: 1.6;
+  padding: 20px;
+  min-height: 100vh;
+}
+.container { max-width: 900px; margin: 0 auto }
+header {
+  text-align: center;
+  padding: 30px 20px;
+  margin-bottom: 30px;
+  background: linear-gradient(180deg, rgba(0,44,98,0.95), transparent);
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+h1 {
+  font-size: 2.2rem;
+  margin-bottom: 12px;
+  background: linear-gradient(90deg, var(--secondary), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.subtitle {
+  color: var(--dim);
+  font-size: 1.1rem;
+  max-width: 700px;
+  margin: 10px auto 0;
+}
+.auth-section {
+  margin-top: 20px;
+  padding: 15px;
+  background: rgba(0,44,98,0.3);
+  border-radius: 12px;
+  display: inline-block;
+  font-size: 1.05rem;
+}
+.auth-info span { margin-right: 15px; color: var(--secondary); font-weight: 600 }
+.tier-badge {
+  background: rgba(255,180,0,0.2);
+  color: var(--secondary);
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  border: 1px solid var(--secondary);
+}
+.usage-counter {
+  background: rgba(0,0,0,0.4);
+  color: var(--dim);
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+}
+.login-btn, .logout-btn {
+  background: linear-gradient(135deg, var(--secondary), #ffa000);
+  color: var(--primary);
+  border: none;
+  padding: 8px 18px;
+  border-radius: 20px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-left: 10px;
+}
+.logout-btn {
+  background: rgba(255,255,255,0.1);
+  color: var(--dim);
+  border: 1px solid rgba(255,255,255,0.2);
+}
+.card {
+  background: var(--glass);
+  border-radius: 16px;
+  padding: 28px;
+  border: 1px solid rgba(255,255,255,0.15);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+}
+.section-title {
+  color: var(--secondary);
+  margin-bottom: 25px;
+  font-size: 1.8rem;
+  text-align: center;
+}
+.input-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+  margin-bottom: 25px;
+}
+.input-group { display: flex; flex-direction: column }
+.input-group label {
+  margin-bottom: 10px;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.input-group select {
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(20,35,60,0.85);
+  color: white;
+  font-size: 1.05rem;
+}
+.btn-primary {
+  width: 100%;
+  max-width: 450px;
+  margin: 25px auto 0;
+  padding: 18px 32px;
+  background: linear-gradient(135deg, var(--secondary), #ffa000);
+  color: var(--primary);
+  border: none;
+  border-radius: 12px;
+  font-size: 1.3rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(255,180,0,0.4);
+}
+.btn-primary:disabled {
+  opacity: 0.8;
+  cursor: not-allowed;
+}
+.error-card {
+  background: rgba(231,76,60,0.15);
+  border: 2px solid #ff4444;
+  color: #ecf0f1;
+  border-radius: 14px;
+  padding: 20px;
+  margin-top: 20px;
+  text-align: center;
+}
+.results-section { margin-top: 10px }
+.strategy-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 20px;
+  border-bottom: 2px solid rgba(255,255,255,0.15);
+  margin-bottom: 25px;
+}
+.formation-display { text-align: center }
+.formation-visual {
+  font-family: monospace;
+  background: rgba(0,0,0,0.4);
+  padding: 15px;
+  border-radius: 12px;
+  font-size: 1.6rem;
+  line-height: 1.8;
+  letter-spacing: -1.5px;
+  margin-bottom: 12px;
+  min-height: 110px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+.formation-name {
+  font-size: 2.1rem;
+  font-weight: 700;
+  color: var(--secondary);
+  margin-top: 10px;
+}
+.win-probability { text-align: center; min-width: 170px }
+.prob-label {
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+.prob-value {
+  font-size: 3.2rem;
+  font-weight: 800;
+  background: linear-gradient(90deg, #00c853, #27ae60);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.tag-group {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 20px 0;
+  padding: 15px;
+  background: rgba(0,0,0,0.3);
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+.tag {
+  padding: 8px 18px;
+  border-radius: 30px;
+  font-size: 1.05rem;
+  font-weight: 600;
+  background: rgba(46,204,113,0.15);
+  color: #2ecc71;
+  border: 1px solid rgba(46,204,113,0.3);
+}
+.detail-title {
+  color: var(--accent);
+  margin: 20px 0 15px;
+  font-size: 1.5rem;
+}
+.detail-text {
+  color: var(--dim);
+  font-size: 1.15rem;
+  line-height: 1.7;
+  margin-bottom: 15px;
+}
+.meta-info {
+  margin-top: 25px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255,255,255,0.1);
+  text-align: center;
+  color: var(--dim);
+  font-size: 0.95rem;
+  font-style: italic;
+}
+@media (max-width: 650px) {
+  .strategy-header { flex-direction: column; gap: 20px; text-align: center }
+  .prob-value { font-size: 2.6rem }
+  .formation-name { font-size: 1.8rem }
+  .formation-visual { font-size: 1.4rem; min-height: 90px }
+  .btn-primary { font-size: 1.15rem; padding: 16px }
+}
+
+=== CONFIG FILES ===
+
+--- vite.config.js ---
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import { VitePWA } from "vite-plugin-pwa";
+
+export default defineConfig({
+  plugins: [
+    react(),
+    VitePWA({
+      registerType: "autoUpdate",
+      manifest: {
+        name: "OSM Master Strategist",
+        short_name: "OSM Tactics",
+        description: "Elite tactical calculator for Online Soccer Manager",
+        theme_color: "#002c62",
+        background_color: "#0c1120",
+        display: "standalone",
+        orientation: "portrait",
+        icons: [
+          {
+            src: "image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxOTIgMTkyIj48Y2lyY2xlIGN4PSI5NiIgY3k9Ijk2IiByPSI5NiIgZmlsbD0iIzAwMmM2MiIvPjx0ZXh0IHg9Ijk2IiB5PSIxMTAiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSI4MCIgZmlsbD0iI2ZmYjQwMCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+T1NNPC90ZXh0Pjwvc3ZnPg==",
+            sizes: "192x192",
+            type: "image/svg+xml",
+            purpose: "any maskable",
+          },
+          {
+            src: "image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48Y2lyY2xlIGN4PSIyNTYiIGN5PSIyNTYiIHI9IjI1NiIgZmlsbD0iIzAwMmM2MiIvPjx0ZXh0IHg9IjI1NiIgeT0iMzAwIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMjAwIiBmaWxsPSIjZmZiNDAwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5PU008L3RleHQ+PC9zdmc+",
+            sizes: "512x512",
+            type: "image/svg+xml",
+          },
+        ],
+      },
+      workbox: {
+        globPatterns: ["**/*.{js,css,html,ico,png,svg}"],
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "google-fonts-cache",
+              expiration: { maxEntries: 10, maxAgeSeconds: 31536000 },
+            },
+          },
+        ],
+      },
+    }),
+  ],
+  // ðŸ”‘ CRITICAL: Development proxy for API routes (FIXES JSON ERRORS)
+  server: {
+    proxy: {
+      "/api/tactical-engine": {
+        target: "https://rtzoxylddzhadwtsracs.supabase.co",
+        changeOrigin: true,
+        rewrite: () => "/functions/v1/osm-counter-tactics",
+      },
+    },
+  },
+});
+
+
+--- eslint.config.js ---
+import js from "@eslint/js";
+import globals from "globals";
+import reactHooks from "eslint-plugin-react-hooks";
+import reactRefresh from "eslint-plugin-react-refresh";
+
+export default [
+  {
+    ignores: ["dist"],
+  },
+  {
+    files: ["**/*.{js,jsx}"],
+    languageOptions: {
+      ecmaVersion: 2020,
+      globals: globals.browser,
+      parserOptions: {
+        ecmaVersion: "latest",
+        ecmaFeatures: { jsx: true },
+        sourceType: "module",
+      },
+    },
+    plugins: {
+      "react-hooks": reactHooks,
+      "react-refresh": reactRefresh,
+    },
+    rules: {
+      ...js.configs.recommended.rules,
+      ...reactHooks.configs.recommended.rules,
+      "react-refresh/only-export-components": [
+        "warn",
+        { allowConstantExport: true },
+      ],
+      "no-unused-vars": ["error", { varsIgnorePattern: "^[A-Z_]" }],
+    },
+  },
+];
+
+
+=== API FILES ===
+
+--- api/tactical-engine.js (if exists) ---
+
+
+--- src/tactical-engine.js (if exists) ---
+
